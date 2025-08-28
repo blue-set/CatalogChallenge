@@ -1,0 +1,130 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <stdexcept>
+
+// Include the third-party libraries
+#include "json.hpp"
+#include "BigInt.hpp"
+
+// Use namespaces
+using namespace std;
+using json = nlohmann::json;
+
+// Define a structure to hold a point (x, y) using BigInt
+struct Point {
+    BigInt x;
+    BigInt y;
+};
+
+/**
+ * Parses a string representation of a number in a given base to a BigInt.
+ *
+ * @param valueStr The string value of the number.
+ * @param base The numerical base (e.g., 2, 10, 16).
+ * @return The parsed BigInt value.
+ */
+BigInt parseBigInt(const string& valueStr, int base) {
+    BigInt result("0");
+    BigInt bigBase(base);
+
+    for (char const &c : valueStr) {
+        int digit;
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else {
+            digit = tolower(c) - 'a' + 10;
+        }
+
+        if (digit >= base) {
+            throw invalid_argument("Invalid digit for the given base.");
+        }
+
+        result = result * bigBase + digit;
+    }
+    return result;
+}
+
+/**
+ * Solves for the secret C = P(0) using Lagrange Interpolation.
+ * @param filePath Path to the JSON test case file.
+ */
+void findSecret(const string& filePath) {
+    // 1. Read and parse the JSON file
+    ifstream fileStream(filePath);
+    if (!fileStream.is_open()) {
+        cerr << "Error: Could not open file " << filePath << endl;
+        return;
+    }
+
+    json data;
+    try {
+        data = json::parse(fileStream);
+    } catch (json::parse_error& e) {
+        cerr << "Error: JSON parsing failed for " << filePath << ": " << e.what() << endl;
+        return;
+    }
+
+    int k = data["keys"]["k"];
+    cout << "\n--- Solving for " << filePath << " ---" << endl;
+    cout << "Total points (n): " << data["keys"]["n"] << ", Points needed (k): " << k << endl;
+
+    // 2. Decode the points (x, y)
+    vector<Point> points;
+    
+    // *** THIS IS THE MODIFIED, COMPATIBLE LOOP ***
+    for (auto& element : data.items()) {
+        string key = element.key();
+        json val = element.value();
+
+        if (key != "keys" && points.size() < k) {
+            BigInt x(key);
+            int base = stoi(val["base"].get<string>());
+            string value_str = val["value"].get<string>();
+            BigInt y = parseBigInt(value_str, base);
+            points.push_back({x, y});
+        }
+    }
+    cout << "Using first " << points.size() << " decoded points." << endl;
+    
+    // 3. Find the Secret (C) using Lagrange Interpolation for P(0)
+    BigInt secretC("0");
+
+    for (int j = 0; j < k; ++j) {
+        BigInt xj = points[j].x;
+        BigInt yj = points[j].y;
+
+        BigInt numerator("1");
+        BigInt denominator("1");
+
+        for (int i = 0; i < k; ++i) {
+            if (i == j) continue;
+
+            BigInt xi = points[i].x;
+            
+            numerator *= (xi * -1);
+            denominator *= (xj - xi);
+        }
+        
+        BigInt term = yj * numerator / denominator;
+        secretC += term;
+    }
+    
+    cout << "✨ The calculated secret (C) is: " << secretC << endl;
+    cout << "---------------------------------\n" << endl;
+}
+
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        cout << "No files provided. Running default test cases." << endl;
+        findSecret("testcase1.json");
+        findSecret("testcase2.json");
+    } else {
+        for (int i = 1; i < argc; ++i) {
+            findSecret(argv[i]);
+        }
+    }
+    return 0;
+}
